@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE cxchelptopics SYSTEM "CXCHelp.dtd">
+<cxchelptopics>
+<ENTRY key="dmmaskstat" context="tools" refkeywords="dm image images mask statistics min max mean median mode perimeter area counts blob" seealsogroups="dmimgtools">
+<SYNOPSIS>
+
+   Computes statistics for pixels in same masked areas
+   
+</SYNOPSIS>
+<ADDRESS><URL>dmmaskstat.html</URL></ADDRESS>
+<ADDRESS>
+<URL>http://cxc.harvard.edu/ciao/ahelp/dmmaskstat.html</URL>
+
+</ADDRESS>
+<DESC>
+<PARA>
+  `dmmaskstat' takes in an input image and an interger data-type mask 
+  file (must be same size/dimensions).  For each unique mask value 
+  the image pixels are collected and various statistics are computed
+  for the pixel values and about the mask itself.  The mask may have
+  come from a tool such as 'dmimgblob' or 'dmnautilus'.
+
+</PARA>
+<LIST>
+<CAPTION>List of statistics computed</CAPTION>
+<ITEM>MIN - min of values in mask</ITEM>
+<ITEM>MAX - max of values in mask</ITEM>
+<ITEM>MEAN - mean values in mask</ITEM>
+<ITEM>MEDIAN - median value in mask; technically the
+lower-median</ITEM>
+<ITEM>MODE - 3*mean-2*median</ITEM>
+<ITEM>SIGMA - standard deviation of values in mask</ITEM>
+<ITEM>SUM - sum of values in mask</ITEM>
+<ITEM>COUNT - number of pixels in mask (also the AREA)</ITEM>
+<ITEM>RAGE - (max-min)</ITEM>
+<ITEM>PERIMETER - length of edges of mask region (including internal
+edges)</ITEM>
+<ITEM>COMPACTNESS - (PERIMETER**2/AREA), a measure of how
+circle-like</ITEM>
+<ITEM>QUANT_25 - the 25% quantile value</ITEM>
+<ITEM>QUANT_33 - the 33% quantile value</ITEM>
+<ITEM>QUANT_67 - the 67% quantile value</ITEM>
+<ITEM>QUANT_75 - the 75% quantile value</ITEM>
+<ITEM>AVERAGE(X_AVERAGE,Y_AVERAGE) - the average location of the
+masked region</ITEM>
+<ITEM>CENTROID(X_CENTROID,Y_CENTROID) - the centroid of the masked region</ITEM>      
+</LIST>
+
+</DESC>
+<QEXAMPLELIST>
+<QEXAMPLE>
+<SYNTAX>
+<LINE>
+
+	dmmaskstat infile=img.fits maskfile=blob.fits outfile=stats.fits
+     
+</LINE>
+
+</SYNTAX>
+<DESC>
+<PARA>
+   Computes the above various statistics for the values in 'img.fits'
+   based on the masks contained in 'blob.fits'
+     
+</PARA>
+</DESC>
+</QEXAMPLE>
+
+</QEXAMPLELIST>
+<PARAMLIST>
+<PARAM name="infile" type="file" reqd="yes" filetype="input">
+<SYNOPSIS>
+	The input image.
+</SYNOPSIS>
+<DESC>
+<PARA>
+  The input 2D image.  
+</PARA>
+</DESC>
+</PARAM>
+<PARAM name="maskfile" type="file" reqd="yes" filetype="input">
+<SYNOPSIS>
+   The input mask image
+</SYNOPSIS>
+<DESC>
+<PARA>
+  Must be same size and dimension(2) as the infile image and must be
+  an integer data type ( byte, short, long, ushort, ulong).
+</PARA>
+</DESC>
+</PARAM>
+
+<PARAM name="outfile" type="file" reqd="yes" filetype="output">
+<SYNOPSIS>
+
+	The output file name
+    
+</SYNOPSIS>
+<DESC>
+<PARA>
+   The output file containing the statistics.
+</PARA>
+
+</DESC>
+</PARAM>
+<PARAM name="clobber" type="boolean" def="no">
+<SYNOPSIS>
+
+	Remove output if it exists?
+    
+</SYNOPSIS>
+<DESC>
+<PARA>
+
+	Used to specify whether or not to clobber existing file that
+	has the same name as the specified output file
+         
+</PARA>
+
+</DESC>
+
+</PARAM>
+<PARAM name="verbose" type="integer" def="0" min="0" max="5">
+<SYNOPSIS>
+
+	The tool chatter level
+    
+</SYNOPSIS>
+<DESC>
+<PARA>
+
+	Verbose can be from 0 to 5, generating different amounts
+        of debugging output.
+         
+</PARA>
+
+</DESC>
+
+</PARAM>
+</PARAMLIST>
+<BUGS><PARA>
+	See the
+        <HREF link="http://cxc.harvard.edu/ciao/bugs/dmmaskstat.html">bugs page
+	for this tool</HREF>
+        on the CIAO website for an up-to-date listing of known bugs.
+      </PARA></BUGS>
+<VERSION>CIAO 3.0</VERSION>
+<LASTMODIFIED>June 2003</LASTMODIFIED>
+
+</ENTRY>
+
+</cxchelptopics>
