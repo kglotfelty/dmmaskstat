@@ -3,4 +3,4 @@ maskfile,f,a,"",,,"Binning mask"
 outfile,f,a,"",,,"Output file"
 verbose,i,h,0,0,0,"Tool chatter level"
 clobber,b,h,no,,,"Remove files if they exist?"
-mode,s,h,ql,,,
+mode,s,h,"ql",,,
