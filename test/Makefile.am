@@ -1,5 +1,5 @@
 # make sure test script is exec
-TESTS = mytool.t
+TESTS = dmmaskstat.t
 
 TESTS_ENVIRONMENT =\
 TESTIN=indata; \

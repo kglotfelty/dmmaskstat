@@ -25,7 +25,7 @@
 #include <float.h>
 #include <limits.h>
 #include <cxcregion.h>
-#include <dmimgfilt.h>
+#include <dmfilters.h>
 
 double get_image_value( void *data, dmDataType dt, long *lAxes, 
                         long xx, long yy, regRegion *dss, 

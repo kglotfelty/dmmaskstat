@@ -1,4 +1,4 @@
-AC_INIT([mytool], [1.0.0], [glotfeltyk@si.edu])
+AC_INIT([dmmaskstat], [1.0.0], [glotfeltyk@si.edu])
 AM_INIT_AUTOMAKE([foreign -Wall])
 AC_PROG_CC
 AM_PROG_CC_C_O
@@ -75,6 +75,16 @@ AC_CHECK_HEADER( dmimgio.h, [],
 CPPFLAGS=$foo
 
 
+# -------- filters ------------
+foo=$CPPFLAGS
+CPPFLAGS=$CIAO_CFLAGS
+AC_CHECK_HEADER( dmfilters.h, [], 
+  AC_MSG_ERROR([Cannot locate dmfilters.h header file], [1])
+)
+CPPFLAGS=$foo
+
+
+
 # ------------
 
 AM_CONDITIONAL([LINUX], [test x`uname` == xLinux])
@@ -89,7 +99,7 @@ AC_CONFIG_FILES([
   test/Makefile
 ])
 
-AC_CONFIG_FILES([wrapper/mytool:wrapper/wrapper.sh],[chmod +x wrapper/mytool])
+AC_CONFIG_FILES([wrapper/dmmaskstat:wrapper/wrapper.sh],[chmod +x wrapper/dmmaskstat])
 
 # -- Go! -----------
 
