@@ -8,7 +8,7 @@ binexe_PROGRAMS = $(tool)
 
 dmmaskstat_SOURCES = dmmaskstat.c t_dmmaskstat.c
 dmmaskstat_CPPFLAGS = $(CIAO_CFLAGS)
-dmmaskstat_LDADD = $(CIAO_LIBS) -ldmimgio -ldmfilters
+dmmaskstat_LDADD = $(CIAO_LIBS) 
 dmmaskstat_LINK = $(CXX) -o $@ -Wl,-rpath,$(prefix)/lib -Wl,-rpath,$(prefix)/ots/lib 
 
 # problems with libstdc++ and cxcparam on Linux :(

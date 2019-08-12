@@ -64,6 +64,8 @@ PKG_CHECK_MODULES( [CIAO], [
   stk
   err
   ds
+  dmimgio
+  dmfilters
 ])
 
 # -------- dmimgio.h ------------
