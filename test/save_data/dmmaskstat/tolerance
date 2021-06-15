@@ -1,0 +1,17 @@
+!checksum
+!datasum
+!date
+!creator
+!histnum
+!ascdsver
+!tierabso
+MEAN=%1e-3
+MODE=%1e-3
+SIGMA=%1e-3
+SUM=%1e-3
+X_CENTROID=%1e-3
+Y_CENTROID=%1e-3
+!RADECSYS
+!RADESYS
+!EQUINOX
+!ds_ident

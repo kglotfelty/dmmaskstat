@@ -39,58 +39,6 @@ error_exit()
   exit 1
 }
 
-######################################################################
-# subroutine
-# keyfilter infile outfile
-# filters out CHECKSUM, Dataset, CREATOR, HISTORY, DATASUM, 
-#             ASCDSVER, HISTNUM, and DATE
-# To filter additional keywords, add s/KEYWORD/Dataset/g; for each.
-
-keyfilter()
-{
-  cat $1 | sed -e 's/CHECKSUM/Dataset/g;s/COMMENT/Dataset/g;
-  s/DATE/Dataset/g;s/CREATOR/Dataset/g;s/HISTORY/Dataset/g;
-  s/DATASUM/Dataset/g;s/ASCDSVER/Dataset/g;s/HISTNUM/Dataset/g' | \
-  grep -v Dataset > $2
-  zerotest $2
-}
-
-######################################################################
-# subroutine
-# find_tool <toolname>
-# checks that tool exists and is runnable
-
-find_tool()
-{
-  s1=`type $1`
-  s2=`echo $s1 | awk -F" " '{ print $3}'`
-  if test -x $s2 ; then
-    :
-  else
-    error_exit "tool $1 not found"
-  fi
-}
-
-######################################################################
-# subroutine
-# zerotest <file> 
-# Makes sure that file is not 0 length.
-# Use this to protect yourself against empty files  (which will 
-# 'diff' without error).  This can happen when the input file to
-# cat $infile | do_something >> $outfile
-# is missing.  This is used by keyfilter(), above.
-
-zerotest()
-{
- if test -s $1 ;
- then
-   :
- else
-   echo "ERROR: file $1 is of zero length" >> $LOGFILE
-   #  Indicate failure, but do not exit.
-   mismatch=0
- fi
-}
 
 
 ######################################################################
@@ -170,16 +118,6 @@ else
 fi
 
 
-# check for tools
-# if a utility is used in the form "utility <args> > outfile", and 'utility'
-# cannot be run, 'outfile' will still be created.  If utility is used on 
-# both the output and reference files of a tool the resultant utility output 
-# files will both exist and be empty, and will pass a diff.
-
-find_tool dmdiff
-find_tool dmimgcalc
-
-
 
 # announce ourselves
 echo ""
@@ -228,76 +166,14 @@ do
   # Init per-test error flag
   mismatch=1
 
-  # if different tests need different kinds of comparisons, use a 
-  #  case ${testid} in...  here
-
-  ####################################################################
-  # FITS table    (duplicate for as many tables per test as needed)
-
-  # new output
-  # !!10
-#dmlist $outfile header,data,array > $OUTDIR/${testid}.dmp1  2>>$LOGFILE
-#keyfilter $OUTDIR/${testid}.dmp1 $OUTDIR/${testid}.dmp2  2>>$LOGFILE
-
-  # reference output
-  # !!11
-#dmlist $savfile header,data,array > $OUTDIR/${testid}.dmp1_std  2>>$LOGFILE
-#keyfilter $OUTDIR/${testid}.dmp1_std $OUTDIR/${testid}.dmp2_std \
-#          2>>$LOGFILE
-
-  # compare
-  # !!12
-#diff $OUTDIR/${testid}.dmp2 $OUTDIR/${testid}.dmp2_std > \
-#     /dev/null 2>>$LOGFILE
 
 
-dmdiff $outfile $savfile tol=$SAVDIR/tolerance > /dev/null 2>>$LOGFILE
-if  test $? -ne 0 ; then
-  echo "ERROR: MISMATCH in $outfile" >> $LOGFILE
-  mismatch=0
-fi
+    dmdiff $outfile $savfile tol=$SAVDIR/tolerance > /dev/null 2>>$LOGFILE
+    if  test $? -ne 0 ; then
+      echo "ERROR: MISMATCH in $outfile" >> $LOGFILE
+      mismatch=0
+    fi
 
-
-  ####################################################################
-  # FITS image  (duplicate for as many images per test as needed)
-
-  # check image
-  # !!13
-#   dmimgcalc "$outfile[1]" "$savfile[1]" none tst verbose=0   2>>$LOGFILE
-#   if test $? -ne 0; then
-#     echo "ERROR: DATA MISMATCH in $outfile" >> $LOGFILE
-#     mismatch=0
-#   fi
-
-  #  Check the header of the image
-
-  # !!14
-  # dmlist $outfile header > $OUTDIR/${testid}.dmp1  2>>$LOGFILE
-  # keyfilter $OUTDIR/${testid}.dmp1 $OUTDIR/${testid}.dmp2  2>>$LOGFILE
-
-  # !!15
-  # dmlist $savfile header > $OUTDIR/${testid}.dmp1_std  2>>$LOGFILE
-  # keyfilter $OUTDIR/${testid}.dmp1_std $OUTDIR/${testid}.dmp2_std \
-  #            2>>$LOGFILE
-
-  # compare
-  # !!16
-#   dmdiff $outfile $savfile tol=$SAVDIR/tolerance verb=0 > \
-#         /dev/null 2>>$LOGFILE
-#   if  test $? -ne 0 ; then
-#     echo "ERROR: HEADER MISMATCH in $outfile" >> $LOGFILE
-#     mismatch=0
-#   fi
-
-  ######################################################################
-  # ascii files
-  # !!17
-  # diff $OUTDIR/${testid}.txt $OUTDIR/${testid}.txt_std > \
-  #       /dev/null 2>>$LOGFILE
-  # if  test $? -ne 0 ; then
-  #   echo "ERROR: TEXT MISMATCH in $OUTDIR/${testid}.txt" >> $LOGFILE
-  #   mismatch=0
-  # fi
 
   ####################################################################
   # Did we get an error?
