@@ -1,5 +1,5 @@
 /*                                                                
-**  Copyright (C) 2004-2008  Smithsonian Astrophysical Observatory 
+**  Copyright (C) 2004-2008, 2021  Smithsonian Astrophysical Observatory 
 */                                                                
 
 /*                                                                          */
@@ -18,668 +18,594 @@
 /*  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.             */
 /*                                                                          */
 
-#include <dslib.h>
-#include <dsnan.h>
-#include <histlib.h>
 #include <math.h>
 #include <float.h>
 #include <limits.h>
+
+#include <dslib.h>
+#include <dsnan.h>
+#include <histlib.h>
 #include <cxcregion.h>
+
 #include <dmfilters.h>
+#include <dmimgio.h>
 
-double get_image_value( void *data, dmDataType dt, long *lAxes, 
-                        long xx, long yy, regRegion *dss, 
-                        dmDescriptor *xAxis, dmDescriptor *yAxis,
-                        long nullval, short has_null )
+/* Hold info for an input image */
+typedef struct {
+    void *data;        // pixel values
+    dmDataType dt;     // pixel datatype
+    long *lAxes;       // axis lenghts
+    short *mask;        // mask of valid pixels
+    dmDescriptor *xdesc;  // X (or sky) coordinate descriptor
+    dmDescriptor *ydesc;  // Y coordinate descriptor
+    dmBlock *block; // The block image came from
+} Image;
+
+
+/* Input parameters */
+typedef struct {
+    char infile[DS_SZ_PATHNAME]; // Input file name
+    char maskfile[DS_SZ_PATHNAME]; // Mask file name
+    char outfile[DS_SZ_PATHNAME]; // Output file name
+    short verbose;      // chatter level
+    short clobber;      // rm outptu file if it exists?
+} Parameters;
+
+
+/* Information about mask pixel values */
+typedef struct {
+    long min_mask;
+    long max_mask;
+    double *vals_in_mask;
+} StatsBuffer;
+
+/* The statistics to be computed */
+typedef struct {
+    long mask_id;       // mask id
+    long area;          // number of pixels in mask, may be diff than 'count' if image contains NaN/Null
+    long perimeter;     // perimeter around the mask (include holes)
+    double compact;     // compactness measure: perimeter^2/area (1=circle)
+    double xcen;        // centroid in x-dir
+    double ycen;        // centroid in y-dir
+    double xavg;        // average x value
+    double yavg;        // average y value
+    double xmin;        // min x value (lower left x)
+    double xmax;        // max x value (upper right x)
+    double ymin;        // min y value (lower left y)
+    double ymax;        // max y value (upper right y)
+    double *more_stats; // stats computed from dmfilters routines, see LIST_OF_STATISTICS
+} Stats;
+
+
+/* Final output statistics */
+typedef struct {    
+    long num_masks;         // number of masks (not all values between min and max may be present)
+    Stats **vals_per_mask;  // arrays of stats values
+} MaskStats;
+
+
+
+// ------------------------
+// Function prototypes
+
+Image* load_infile(char *infile);
+int dmmaskstat();
+int convert_coords( Image *image, double x_in, double y_in, double *x_out, double *y_out);
+Parameters *get_parameters();
+StatsBuffer *get_mask_range(Image *mask);
+double *compute_more_stats(double *vals, long nvals);
+Stats *get_mask_stats(Image *image, Image *mask, StatsBuffer *sbuff, long mask_id);
+MaskStats *loop_over_masks( Image *image, Image *mask, StatsBuffer *sbuff);
+int write_output(char *outfile, MaskStats *mask_stats, Image *image);
+
+// ---------
+
+/*
+ * These stats come from the dmfilters library.
+ */
+#define LIST_OF_STATISTICS   {"min", "max", "mean", "count", \
+                              "sum", "median", "mode", "mid",  \
+                              "sigma", "extreme", "range", "q25", \
+                              "q33", "q67", "q75", "olympic", NULL }
+
+// ----------------------
+// Functions
+
+/*
+ *  Load images using dmimgio routines
+ */
+Image* load_infile(char *infile)
 {
+    // Load image
 
-  long npix = xx + (yy * lAxes[0] );
-  double retval;
-
-  /* Okay, first get all the data from the different data types.  
-     Cast everything to doubles */
-
-  if ( ( xx < 0 ) || ( xx >= lAxes[0] ) ||
-       ( yy < 0 ) || ( yy >= lAxes[1] ) ) {
-    ds_MAKE_DNAN( retval );
-    return(retval);
-  }
-
-
-  switch ( dt ) {
-    
-  case dmBYTE: {
-    unsigned char *img = (unsigned char*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmSHORT: {
-    short *img = (short*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmUSHORT: {
-    unsigned short *img = (unsigned short*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmLONG: {
-    long *img = (long*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmULONG: {
-    unsigned long *img = (unsigned long*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmFLOAT: {
-    float *img = (float*)data;
-    retval = img[npix];
-    break;
-  }
-  case dmDOUBLE: {
-    double *img = (double*)data;
-    retval = img[npix];
-    break;
-  }
-  default:
-    ds_MAKE_DNAN( retval );
-
-  }
-
-  
-  /* Now ... if it is an integer data type, it could possibly have a
-     null value. Check for that */
-
-  if ( has_null && ( retval == nullval ) ) {
-    ds_MAKE_DNAN( retval );
-    return(retval);
-  }
-  /* If the image has a data sub space (aka a region filter applied)
-     then need to convert coords to physical and check */
-  if ( dss && xAxis ) {
-    double pos[2];
-    double loc[2];
-    pos[0]=xx+1;
-    pos[1]=yy+1;
-
-    if (yAxis) {  /* If no y axis, then xAxis has 2 components */
-      dmCoordCalc_d( xAxis, pos, loc );
-      dmCoordCalc_d( yAxis, pos+1, loc+1 );
-    } else {
-      dmCoordCalc_d( xAxis, pos, loc );
+    Image *image;
+    if (NULL == (image = calloc(1,sizeof(Image)))) {
+        err_msg("ERROR: Cannot allocate memory for image\n");
+        return(NULL);
     }
-    if ( !regInsideRegion( dss, loc[0], loc[1] ) )
-      ds_MAKE_DNAN( retval );
-  }
 
-  return(retval);
+    if (NULL == (image->block = dmImageOpen(infile))) {
+        err_msg("ERROR: Cannot load infile '%s'\n",infile);
+        return(NULL);
+    }
 
+    // dmimgio
+    regRegion *dss = NULL;
+    long null_value;
+    short has_null;
+    image->dt = get_image_data(image->block, &(image->data),
+                    &(image->lAxes), &dss, &null_value, &has_null);
+    get_image_wcs(image->block, &(image->xdesc), &(image->ydesc));
+    image->mask = get_image_mask(image->block, image->data,
+                    image->dt, image->lAxes, dss, null_value,
+                    has_null, image->xdesc, image->ydesc);
+
+    if (dss != NULL){
+        regFree(dss);
+        dss=NULL;
+    }
+
+    return(image);
 }
 
 
-
-/* Load the data into memory,  check for DSS, null values */
-dmDataType get_image_data( dmBlock *inBlock, void **data, long **lAxes,
-                           regRegion **dss, long *nullval, short *nullset )
+/*
+ *  Convert coordinates from C-index to Physical coordinates
+ */
+int convert_coords( Image *image, double x_in, double y_in, double *x_out, double *y_out)
 {
-
-  dmDescriptor *imgDesc;
-  dmDataType dt;
-  dmDescriptor *grp;
-  dmDescriptor *imgdss;
-
-  long naxes;
-  long npix;
-  char ems[1000];
-
-  *nullval = INDEFL;
-  *dss = NULL;
-  *nullset = 0;
-  
-  imgDesc = dmImageGetDataDescriptor( inBlock );
-
-  /* Sanity check, only 2D images */
-  naxes = dmGetArrayDimensions( imgDesc, lAxes );
-  if ( naxes != 2 ) {
-    return( dmUNKNOWNTYPE );
-  }
-  npix = (*lAxes)[0] * (*lAxes)[1];
-  dt = dmGetDataType( imgDesc );
-
-
-  /* Okay, first lets get the image descriptor */
-  grp = dmArrayGetAxisGroup( imgDesc, 1 );
-  dmGetName( grp, ems, 1000);
-  imgdss = dmSubspaceColOpen( inBlock, ems );
-  if ( imgdss )
-    *dss = dmSubspaceColGetRegion( imgdss);
-  
-  
-  switch ( dt ) 
-    {
-    case dmBYTE:
-      *data = ( void *)calloc( npix, sizeof(char ));
-      dmGetArray_ub( imgDesc, (unsigned char*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmSHORT:
-      *data = ( void *)calloc( npix, sizeof(short ));
-      dmGetArray_s( imgDesc, (short*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmUSHORT:
-      *data = ( void *)calloc( npix, sizeof(short ));
-      dmGetArray_us( imgDesc, (unsigned short*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmLONG:
-      *data = ( void *)calloc( npix, sizeof(long ));
-      dmGetArray_l( imgDesc, (long*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmULONG:
-      *data = ( void *)calloc( npix, sizeof(long ));
-      dmGetArray_ul( imgDesc, (unsigned long*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmFLOAT:
-      *data = ( void *)calloc( npix, sizeof(float ));
-      dmGetArray_f( imgDesc, (float*) *data, npix );
-      *nullset = 0;
-      break;
-      
-    case dmDOUBLE:
-      *data = ( void *)calloc( npix, sizeof(double ));
-      dmGetArray_d( imgDesc, (double*) *data, npix );
-      *nullset = 0;
-      break;
-      
-    default:
-      return( dmUNKNOWNTYPE );
+    // Convert from 0-based array index to physical coords
+    if (image->xdesc == NULL) {
+        *x_out = x_in;
+        *y_out = y_in;
+        return(0);
     }
 
-  return(dt);
+    double logical[2];
+    double physical[2];
 
+    logical[0] = x_in + 1;
+    logical[1] = y_in + 1;
+    dmCoordCalc_d(image->xdesc, logical, physical);
+    if (image->ydesc){
+        dmCoordCalc_d(image->ydesc, logical+1, physical+1);
+    }
+    *x_out = physical[0];
+    *y_out = physical[1];
+
+    return(0);
+}
+
+/*
+ * Load parameters from .par file
+ */
+Parameters *get_parameters()
+{
+    
+    Parameters *pars;
+    if (NULL == (pars = calloc(1,sizeof(Parameters)))) {
+        err_msg("ERROR: problem allocating memory");
+        return(NULL);
+    }
+
+    clgetstr("infile", pars->infile, DS_SZ_PATHNAME);
+    clgetstr("maskfile", pars->maskfile, DS_SZ_PATHNAME);
+    clgetstr("outfile", pars->outfile, DS_SZ_PATHNAME);
+    pars->verbose = clgeti("verbose");
+    pars->clobber = clgetb("clobber");
+
+    if (pars->verbose >= 1){
+        printf("dmmaskstat\n");
+        printf("%15s = %-s\n", "infile", pars->infile);
+        printf("%15s = %-s\n", "maskfile", pars->maskfile);
+        printf("%15s = %-s\n", "outfile", pars->outfile);
+        printf("%15s = %d\n", "verbose", pars->verbose);
+        printf("%15s = %-s\n", "clobber", pars->clobber ? "yes" : "no");
+    }
+
+    return(pars);        
 }
 
 
-/* Get the WCS descriptor */
-short  get_image_wcs( dmBlock *imgBlock, dmDescriptor **xAxis, 
-                      dmDescriptor **yAxis )
+/*
+ * Setup the StatsBuff.  We determine the range of mask values
+ * in the input image and setup a buffer to be used by the 
+ * dmfilters routines.   We set the buffer to the same size
+ * as the image -- guaranteed there won't be more pixels than that.
+ */
+StatsBuffer *get_mask_range(Image *mask)
 {
-  
 
-  dmDescriptor *imgData;
-  long n_axis_groups;
-
-  imgData = dmImageGetDataDescriptor( imgBlock );
-  n_axis_groups = dmArrayGetNoAxisGroups( imgData );
-  
-
-  /* This is the usual trick ... can have 1 axis group w/ 
-     dimensionality 2 (eg a vector column) or can have
-     2 axis groups w/ dimensionaity 1 (eg 2 disjoint columns)*/
-
-  if ( n_axis_groups == 1 ) {
-    dmDescriptor *pos = dmArrayGetAxisGroup( imgData, 1 );
-    dmDescriptor *xcol;
-    long n_components;
+    StatsBuffer *sbuff;
     
-    n_components = dmGetElementDim( pos );
-    if ( n_components != 2 ) {
-      err_msg("ERROR: could not find 2D image\n");
-      return(-1);
+    if ( NULL == (sbuff = calloc(1,sizeof(StatsBuffer)))) {
+        err_msg("ERROR: mem alloc failed");
+        return NULL;
     }
-    
-    xcol = dmGetCpt( pos, 1 );
-    
-    *xAxis = pos;
-    *yAxis = NULL;
-    
-  } else if ( n_axis_groups == 2 ) {
-    dmDescriptor *xcol;
-    dmDescriptor *ycol;
+
+    sbuff->min_mask = LONG_MAX;
+    sbuff->max_mask = LONG_MIN;
   
-    xcol = dmArrayGetAxisGroup( imgData, 1 );
-    ycol = dmArrayGetAxisGroup( imgData, 2 );
+    long xx,yy;
 
-    *xAxis = xcol;
-    *yAxis = ycol;
-    
-  } else {
-    err_msg("Invalid number of axis groups\n");
-    *xAxis = NULL;
-    *yAxis = NULL;
-    return(-1);
-  }
+    for(yy=mask->lAxes[1];yy--;) {
+        for (xx=mask->lAxes[0];xx--; ) {
+            double  mval;
+            mval = get_image_value(mask->data, mask->dt, xx, yy,
+                                   mask->lAxes, mask->mask);
+            if ( ds_dNAN(mval) ) continue;
 
-  return(0);
+            sbuff->min_mask = MIN( sbuff->min_mask, mval );
+            sbuff->max_mask = MAX( sbuff->max_mask, mval );
+        }
+    }
 
+
+    if (NULL == (sbuff->vals_in_mask = (double*)calloc(mask->lAxes[0]*mask->lAxes[1], sizeof(double)))) {
+        err_msg("ERROR: mem alloc failed");
+        return NULL;
+    }
+  
+    return sbuff;
 }
 
 
+/*
+ * Compute the statistics from the dmfilters library.
+ */
+double *compute_more_stats(double *vals, long nvals)
+{
+    // Compute array of statistics for each grid
+    char *list_of_stats[] = LIST_OF_STATISTICS;
+
+    // Count the number of statistcs
+    int num_stats = 0;
+    while(list_of_stats[++num_stats]) {};
+
+    // +1 so has NULL to terminate list
+    double *stats = NULL;
+    if (NULL == (stats = calloc(num_stats+1,sizeof(double)))) {
+        err_msg("ERROR: Problem allocating memory");
+        return(NULL);
+    }
+
+    int ii;
+    for (ii=0;ii<num_stats;ii++) {
+        // dmfilter.h
+        double (*func)( double *vals, long nvals ) = NULL;
+        if (NULL == (func = get_method(list_of_stats[ii]))) {
+            err_msg("ERROR: Unknown filter %s", list_of_stats[ii]);
+            return(NULL);
+        }
+
+        double val;
+        val = func(vals, nvals);
+
+        // Special case -- if 0 counts, set to 0 not NaN
+        if ((strcmp(list_of_stats[ii], "count") == 0) && (ds_dNAN(val))) {
+            val = 0;
+        }
+
+        stats[ii] = val;
+
+    } // end for ii
 
 
+    return(stats);
+}
+
+/*
+ * Compute the statistics for the current mask_id value.
+ * 
+ * it computes some stats based on the mask (perimeter,
+ */
+Stats *get_mask_stats(Image *image, Image *mask, StatsBuffer *sbuff, long mask_id)
+{
+
+    Stats *retvals;
+    if ( NULL == ( retvals = calloc(1,sizeof(Stats)))) {
+        err_msg("ERROR: alloc failed");
+        return NULL;
+    }
+
+    retvals->mask_id = mask_id;
+
+    long nvals = 0;
+    double sum_up = 0;
+    retvals->area = 0;
+    retvals->xavg = 0;
+    retvals->yavg = 0;
+    retvals->xcen = 0;
+    retvals->ycen = 0;
+    retvals->perimeter=0;
+
+    retvals->xmax = retvals->ymax = -1;
+    retvals->xmin = image->lAxes[0]+1;
+    retvals->ymin = image->lAxes[1]+1;
+
+    long xx,yy;
+    for(yy=image->lAxes[1];yy--;) {
+      double last_mval;
+      last_mval=sbuff->min_mask-1;
+
+      for (xx=image->lAxes[0];xx--; ) {
+        double  mval;
+        mval = get_image_value(mask->data, mask->dt, xx, yy,
+                                   mask->lAxes, mask->mask);
+
+        if ((mval != mask_id) && (last_mval == mask_id)) retvals->perimeter++;
+        if ((mval == mask_id) && (last_mval != mask_id)) retvals->perimeter++;        
+        last_mval = mval;
+        if (mval != mask_id) {
+            continue;
+        }
+
+        if ( xx==0 ) retvals->perimeter+=1; /* if at edge then count +1 */
+        retvals->area++;
+        
+        retvals->xavg += xx; 
+        retvals->yavg += yy;
+        retvals->xmin = MIN(xx,retvals->xmin);
+        retvals->xmax = MAX(xx,retvals->xmax);
+        retvals->ymin = MIN(yy,retvals->ymin);
+        retvals->ymax = MAX(yy,retvals->ymax);
+
+        double val;
+        val = get_image_value( image->data, image->dt, xx, yy,
+                               image->lAxes, image->mask);
+        if ( ds_dNAN(val) ) {
+            continue;
+        }
+
+        sbuff->vals_in_mask[nvals] = val;
+        nvals++;
+
+        val = fabs(val);
+        retvals->xcen += (xx*val); // use magnitude to compute centroid
+        retvals->ycen += (yy*val);
+        sum_up += val;
+
+                
+      } /* end xx */
+    } /* end yy */
+
+    if ( 0 == nvals ) {
+        return NULL;
+    }
+
+    retvals->more_stats = compute_more_stats( sbuff->vals_in_mask, nvals);
+
+    retvals->xavg /= nvals; 
+    retvals->yavg /= nvals;
+    retvals->xcen /= sum_up;
+    retvals->ycen /= sum_up;
+    
+    /* Similar to above, but do x then y */
+    /* We only need to work inside of min/max range found above */
+    for (xx=retvals->xmax;xx>=retvals->xmin;xx--) {
+      double last_mval;
+      last_mval=sbuff->min_mask-1;
+
+      for(yy=retvals->ymax;yy>=retvals->ymin;yy--) {
+
+        double mval;
+
+        mval = get_image_value(mask->data, mask->dt, xx, yy,
+                                   mask->lAxes, mask->mask);
+
+        if ((mval != mask_id) && (last_mval == mask_id)) retvals->perimeter++;
+        if ((mval == mask_id) && (last_mval != mask_id)) retvals->perimeter++;        
+        last_mval = mval;
+        if (mval != mask_id) {
+            continue;
+        }
+        // If we are at the edge of image and current value is mask
+        // then add perimeter
+        if ( yy==retvals->ymin) retvals->perimeter+=1;
+        
+      } /* end xx */
+    } /* end yy */
+
+    retvals->compact = ((double)retvals->perimeter*retvals->perimeter/retvals->area);
+
+    return retvals;
+    
+}
+
+/*
+ *  Driver script to loop over mask_id values.
+ * 
+ *  Keeps track of how many mask_id's have values and stores
+ *  values for only those that do.
+ */
+#define BUFFER_INC 10
+
+MaskStats *loop_over_masks( Image *image, Image *mask, StatsBuffer *sbuff)
+{
+
+    MaskStats *retvals;
+    
+    if (NULL == (retvals = calloc(1,sizeof(MaskStats)))) {
+        err_msg("ERROR: mem alloc failed");
+        return NULL;
+    }
+    
+    retvals->num_masks = 0;
+    retvals->vals_per_mask = NULL;
+
+    long mask_id;    
+    for (mask_id = sbuff->min_mask; mask_id <= sbuff->max_mask; mask_id++ ) {
+
+        Stats *mask_stat;
+        if (NULL == (mask_stat = get_mask_stats(image, mask, sbuff, mask_id))) {
+            continue;
+        }
+
+
+        if ((retvals->num_masks % BUFFER_INC) == 0) {
+            if (NULL == retvals->vals_per_mask) {
+                retvals->vals_per_mask = (Stats**)calloc(BUFFER_INC,sizeof(Stats*));
+            } else {
+                retvals->vals_per_mask = (Stats**)realloc(retvals->vals_per_mask, 
+                                            (retvals->num_masks+BUFFER_INC)*sizeof(Stats*));
+            }
+        }
+        retvals->vals_per_mask[retvals->num_masks] = mask_stat;
+        retvals->num_masks++;        
+        
+    } // end for mask_id
+ 
+    return retvals;
+}
+
+/*
+ * Save values to output table.
+ * 
+ */
+int write_output(char *outfile, MaskStats *mask_stats, Image *image)
+{
+
+    dmBlock *outBlock;
+    if (NULL == (outBlock = dmTableCreate( outfile ) )) {
+        err_msg("ERROR: Cannot create output file '%s'\n", outfile );
+        return(1);
+    }
+
+    char units[100];
+    memset( units, 0, sizeof(char)*100);
+    dmGetUnit( dmImageGetDataDescriptor( image->block ), units, 99 );
+
+    /* All the header stuff */
+    Header_Type *hdr;
+    hdr = getHdr( image->block, hdrDM_FILE );
+    putHdr( outBlock, hdrDM_FILE, hdr, BASIC_STS, "dmmaskstat" );
+    put_param_hist_info(outBlock, "dmmaskstat", NULL, 0);
+
+    if (dmBlockGetNo(outBlock) != 1) {
+        dmDataset *outDs = dmBlockGetDataset(outBlock);
+        dmBlock *primary = dmDatasetMoveToBlock(outDs, 1);
+        putHdr(primary, hdrDM_FILE, hdr, PRIMARY_STS, "dmmaskstat");
+    }
+
+
+    // Write data
+    // TODO Vector column and copy WCS from image to x,y cols
+    dmDescriptor *mask_id_col = dmColumnCreate(outBlock, "mask", dmLONG, 0, "", "Mask ID number");
+    dmDescriptor *area_col = dmColumnCreate(outBlock, "area", dmLONG, 0, "pixel", "Number of pixels in mask");
+    dmDescriptor *perimeter_col = dmColumnCreate(outBlock, "perimeter", dmLONG, 0, "pixel", "Perimeter length");
+    dmDescriptor *compact_col = dmColumnCreate(outBlock, "compactness", dmDOUBLE, 0, "", "Measure of roundness: perimeter^2/area");
+    dmDescriptor *xcen_col = dmColumnCreate(outBlock, "x_centroid", dmDOUBLE, 0, "pixel", "centroid in x");
+    dmDescriptor *ycen_col = dmColumnCreate(outBlock, "y_centroid", dmDOUBLE, 0, "pixel", "centroid in y");
+    dmDescriptor *xavg_col = dmColumnCreate(outBlock, "x_average", dmDOUBLE, 0, "pixel", "average x value");
+    dmDescriptor *yavg_col = dmColumnCreate(outBlock, "y_average", dmDOUBLE, 0, "pixel", "average y value");
+    dmDescriptor *xmin_col = dmColumnCreate(outBlock, "x_min", dmDOUBLE, 0, "pixel", "minimum x value");
+    dmDescriptor *xmax_col = dmColumnCreate(outBlock, "x_max", dmDOUBLE, 0, "pixel", "maximum x value");
+    dmDescriptor *ymin_col = dmColumnCreate(outBlock, "y_min", dmDOUBLE, 0, "pixel", "minimum y value");
+    dmDescriptor *ymax_col = dmColumnCreate(outBlock, "y_max", dmDOUBLE, 0, "pixel", "maximum y value");
+
+    // Compute array of statistics for each grid
+    char *list_of_stats[] = LIST_OF_STATISTICS;
+
+    // Count the number of statistcs
+    int num_stats = 0;
+    while(list_of_stats[++num_stats]) {};
+
+    dmDescriptor **more_stats_col = (dmDescriptor **)calloc(num_stats,sizeof(dmDescriptor *));
+    long ii;
+    for (ii=0;ii<num_stats;ii++) {
+        dmDataType dt;
+        dt = strcmp(list_of_stats[ii], "count") ? dmDOUBLE : dmLONG;
+        more_stats_col[ii] = dmColumnCreate(outBlock, list_of_stats[ii], dt, 0, units, "");
+    }
+
+    // Loop over mask ids
+    for (ii=0;ii< mask_stats->num_masks;ii++) {
+        Stats *at = mask_stats->vals_per_mask[ii];
+        double xx,yy;
+        long jj;
+
+        dmSetScalar_l( mask_id_col, at->mask_id);
+        dmSetScalar_l( area_col, at->area);
+        dmSetScalar_l( perimeter_col, at->perimeter);
+        dmSetScalar_d( compact_col, at->compact);
+        
+        convert_coords( image, at->xavg, at->yavg, &xx, &yy);
+        dmSetScalar_d( xavg_col, xx);
+        dmSetScalar_d( yavg_col, yy);
+        
+        convert_coords( image, at->xcen, at->ycen, &xx, &yy);
+        dmSetScalar_d( xcen_col, xx);
+        dmSetScalar_d( ycen_col, yy);
+
+        convert_coords( image, at->xmin, at->ymin, &xx, &yy);
+        dmSetScalar_d( xmin_col, xx);
+        dmSetScalar_d( ymin_col, yy);
+
+        convert_coords( image, at->xmax, at->ymax, &xx, &yy);
+        dmSetScalar_d( xmax_col, xx);
+        dmSetScalar_d( ymax_col, yy);
+        
+        for (jj=0;jj<num_stats; jj++) {
+            dmSetScalar_d( more_stats_col[jj], at->more_stats[jj]);
+        }
+
+        dmTablePutRow(outBlock, NULL);        
+    }
+
+    dmTableClose(outBlock);
+
+    return 0;
+}
+
+/*
+ * Main routine.
+ */
 int dmmaskstat()
 {
 
-  char infile[DS_SZ_PATHNAME];
-  char maskfile[DS_SZ_PATHNAME];
-  char outfile[DS_SZ_PATHNAME];
-  short clobber;
-  short verbose;
-
-  void *data;
-  long *lAxes;
-  regRegion *dss;
-  long null;
-  short has_null;
-  dmDataType dt;
-  dmBlock *inBlock;
-  dmDescriptor *xdesc, *ydesc;
-  
-  void *mask_data;
-  long *mask_lAxes;
-  regRegion *mask_dss;
-  long mask_null;
-  short mask_has_null;
-  dmDataType mask_dt;
-  dmBlock *mask_inBlock;
-  dmDescriptor *mask_xdesc, *mask_ydesc;
-  long min_mask, max_mask;
-  
-
-  double *vals;
-  long nvals;
-
-  dmBlock *outBlock;
-
-  typedef struct {
-    long mask_vals;
-    double min;
-    double max;
-    double mean;
-    double median;
-    double mode;
-    double sigma;
-    double sum;
-    long count;
-    long perimeter;
-    double compact;
-    double range;
-    double q25;
-    double q33;
-    double q67;
-    double q75;
-    double xcen;
-    double ycen;
-    double xavg;
-    double yavg;
-
-
-  } Stats; 
-
-  Stats *stats;
-
-  long xx, yy,ii;
-
-
-
-  /* Get the parameters */
-  clgetstr( "infile", infile, DS_SZ_FNAME );
-  clgetstr( "maskfile", maskfile, DS_SZ_FNAME );
-  clgetstr( "outfile", outfile, DS_SZ_FNAME );
-  clobber = clgetb( "clobber" );
-  verbose = clgeti( "verbose" );
-  
-
-
-  if ( ds_clobber( outfile, clobber, NULL ) != 0 ) {
-    return(-1);
-  }
-
-
-  if ( NULL == ( inBlock = dmImageOpen( infile) ) ) {
-    err_msg("ERROR: Cannot open image '%s'\n", infile );
-    return(-1);
-  }
-
-  if ( dmUNKNOWNTYPE == ( dt = get_image_data( inBlock, &data,  &lAxes, 
-                                               &dss, &null, &has_null ) ) ) {
-    err_msg("ERROR: Cannot get image data or unknown image data-type for "
-            "file '%s'\n", infile);
-    return(-1);
-  }
-
-  if ( 0 != get_image_wcs( inBlock, &xdesc, &ydesc ) ) {
-    err_msg("ERROR: Cannot load WCS for file '%s'\n", infile );
-    return(-1);
-  }
-
-
-  /* cut-n-paste of above, for mask file */
-  if ( NULL == ( mask_inBlock = dmImageOpen( maskfile) ) ) {
-    err_msg("ERROR: Cannot open image '%s'\n", maskfile );
-    return(-1);
-  }
-
-  if (dmUNKNOWNTYPE==(mask_dt=get_image_data(mask_inBlock, &mask_data,  
-					     &mask_lAxes, &mask_dss, 
-					     &mask_null, &mask_has_null ))) {
-    err_msg("ERROR: Cannot get image data or unknown image data-type for "
-            "file '%s'\n", maskfile);
-    return(-1);
-  }
-
-  if ( ( dmFLOAT == mask_dt) || ( dmDOUBLE==mask_dt)) {
-    err_msg("ERROR: Mask file must be integer data type\n");
-    return(-1);
-  }
-  
-  if ( (mask_lAxes[0]!=lAxes[0]) || (mask_lAxes[1]!=lAxes[1])) {
-    err_msg("ERROR: infile and maskfile do not have same image dimensions\n");
-    return(-1);
-  }
-  
-
-  if ( 0 != get_image_wcs( mask_inBlock, &mask_xdesc, &mask_ydesc ) ) {
-    err_msg("ERROR: Cannot load WCS for file '%s'\n", maskfile );
-    return(-1);
-  }
-
-
-  min_mask = LONG_MAX;
-  max_mask = LONG_MIN;
-
-  
-
-  for(yy=lAxes[1];yy--;) {
-    for (xx=lAxes[0];xx--; ) {
-      double  mval;
-      mval = get_image_value( mask_data, mask_dt, mask_lAxes, xx, yy,
-			      mask_dss, mask_xdesc, mask_ydesc, mask_null, 
-			      mask_has_null );
-      if ( ds_dNAN(mval) ) continue;
-
-      min_mask = MIN( min_mask, mval );
-      max_mask = MAX( max_mask, mval );
-
+    Parameters *pars;
+    if (NULL == (pars = get_parameters())) {
+        return(-9);
     }
-  }
 
-  vals = (double*)calloc(lAxes[0]*lAxes[1], sizeof(double));
-  
-  stats=(Stats*)calloc((max_mask-min_mask+1), sizeof(Stats));
-
-
-  
-  for (ii=min_mask; ii<=max_mask;ii++) {
-    double xavg, yavg;
-    double xcen, ycen;
-    long perimeter;
-    nvals = 0;
-    xavg = 0;
-    yavg = 0;
-    xcen = 0;
-    ycen = 0;
-    perimeter=0;
-
-    for(yy=lAxes[1];yy--;) {
-      double last_mval;
-      last_mval=min_mask-1;
-
-      for (xx=lAxes[0];xx--; ) {
-	double val;
-	double  mval;
-	mval = get_image_value( mask_data, mask_dt, mask_lAxes, xx, yy,
-				mask_dss, mask_xdesc, mask_ydesc, mask_null, 
-				mask_has_null );
-	if ( ds_dNAN(mval) ) { 
-	  if ( last_mval == ii ) perimeter++;
-	  last_mval=mval; 
-	  continue; 
-	}
-	if ( mval != ii ) { 
-	  if ( last_mval == ii ) perimeter++;
-	  last_mval=mval; 
-	  continue; 
-	}
-	
-	val = get_image_value( data, dt, lAxes, xx, yy, dss, xdesc,
-			       ydesc, null, has_null );
-	if ( last_mval != mval ) {
-	  perimeter+=1;
-	}
-	if ( xx==0 ) perimeter+=1; /* if at edge then count +1 */
-	
-	if ( ds_dNAN(val) ) { last_mval=mval; continue;}
-
-	xavg += xx; 
-	yavg += yy;
-	xcen += (xx*val);
-	ycen += (yy*val);
-	vals[nvals] = val;
-	nvals++;
-	last_mval = mval;
-		
-      } /* end xx */
-    } /* end yy */
-
-    
-    /* Similar to above, but do x then y */
-    for (xx=lAxes[0];xx--; ) {
-      double last_mval;
-      last_mval=min_mask-1;
-
-      for(yy=lAxes[1];yy--;) {
-
-	double val;
-	double  mval;
-
-	mval = get_image_value( mask_data, mask_dt, mask_lAxes, xx, yy,
-				mask_dss, mask_xdesc, mask_ydesc, mask_null, 
-				mask_has_null );
-	if ( ds_dNAN(mval) ) { 
-	  if ( last_mval == ii ) perimeter++;
-	  last_mval=mval; 
-	  continue; 
-	}
-	if ( mval != ii ) { 
-	  if ( last_mval == ii ) perimeter++;
-	  last_mval=mval; 
-	  continue; 
-	}
-	
-	val = get_image_value( data, dt, lAxes, xx, yy, dss, xdesc,
-			       ydesc, null, has_null );
-	if ( last_mval != mval ) {
-	  perimeter+=1;
-	}
-	if ( yy==0 ) perimeter+=1;
-	
-	if ( ds_dNAN(val) ) { last_mval=mval; continue;}
-
-	last_mval = mval;
-
-      } /* end xx */
-    } /* end yy */
-
-
-    if ( 0 == nvals ) {
-      ds_MAKE_DNAN( xavg );
-      ds_MAKE_DNAN( yavg );
-      ds_MAKE_DNAN( xcen );
-      ds_MAKE_DNAN( ycen );
+    if ( ds_clobber( pars->outfile, pars->clobber, NULL ) != 0 ) {
+        return(-1);
     }
-    
-    stats[ii-min_mask].mask_vals = ii;
-    stats[ii-min_mask].min = _filtMIN( vals, nvals );
-    stats[ii-min_mask].max = _filtMAX( vals, nvals );
-    stats[ii-min_mask].mean = _filtMEAN( vals, nvals );
-    stats[ii-min_mask].median = _filtMEDIAN( vals, nvals );
-    stats[ii-min_mask].mode = _filtMODE( vals, nvals );
-    stats[ii-min_mask].sigma = _filtSIG( vals, nvals );
-    stats[ii-min_mask].sum = _filtSUM( vals, nvals );
-    stats[ii-min_mask].count = _filtCOUNT( vals, nvals );
-    stats[ii-min_mask].range = _filtRANGE( vals, nvals );
-    stats[ii-min_mask].q25 = _filtQUANTILE_25( vals, nvals );
-    stats[ii-min_mask].q33 = _filtQUANTILE_33( vals, nvals );
-    stats[ii-min_mask].q67 = _filtQUANTILE_67( vals, nvals );
-    stats[ii-min_mask].q75 = _filtQUANTILE_75( vals, nvals );
-    stats[ii-min_mask].xcen = xcen / stats[ii-min_mask].sum ;
-    stats[ii-min_mask].ycen = ycen / stats[ii-min_mask].sum ;
-    stats[ii-min_mask].xavg = xavg / stats[ii-min_mask].count ;
-    stats[ii-min_mask].yavg = yavg / stats[ii-min_mask].count ;
-    stats[ii-min_mask].perimeter = perimeter;
-    stats[ii-min_mask].compact = ((double)perimeter) * perimeter / 
-      ((double)nvals);
-    
 
-  } /* end for ii, loop over mask values */
-
-
-
-  if ( NULL == ( outBlock = dmTableCreate( outfile ))){
-    err_msg("ERROR: Cannot create output table '%s'\n", outfile );
-    return(-1);
-  } else {
-    dmDescriptor *mask_col, *min_col, *max_col, *mean_col, *median_col;
-    dmDescriptor *mode_col, *sig_col, *sum_col, *count_col, *range_col;
-    dmDescriptor *q25_col,*q33_col,*q67_col,*q75_col;
-    dmDescriptor *avg_col, *cen_col, *per_col, *com_col;
-
-    char *avg[] = { "X_AVGERAGE", "Y_AVGERAGE" };
-    char *cen[] = { "X_CENTROID", "Y_CENTROID"};
-
-    Header_Type *hdr;
-
-
-    mask_col=dmColumnCreate( outBlock, "MASK", dmLONG, 0, NULL, "mask value");
-    min_col=dmColumnCreate( outBlock, "MIN", dmDOUBLE, 0, NULL, "min value");
-    max_col=dmColumnCreate( outBlock, "MAX", dmDOUBLE, 0, NULL, "max value");
-    mean_col=dmColumnCreate( outBlock, "MEAN", dmDOUBLE, 0, NULL, "mean value");
-    median_col=dmColumnCreate( outBlock, "MEDIAN", dmDOUBLE, 0, NULL, "median value");
-    mode_col=dmColumnCreate( outBlock, "MODE", dmDOUBLE, 0, NULL, "mode value");
-    sig_col=dmColumnCreate( outBlock, "SIGMA", dmDOUBLE, 0, NULL, "sigma value");
-    sum_col=dmColumnCreate( outBlock, "SUM", dmDOUBLE, 0, NULL, "sum of pixels");
-    count_col=dmColumnCreate( outBlock, "COUNT", dmLONG, 0, NULL, "no. pixels");
-    range_col=dmColumnCreate( outBlock, "RANGE", dmDOUBLE, 0, NULL, "max-min");
-    per_col=dmColumnCreate( outBlock, "PERIMETER", dmLONG, 0, NULL, "length of perimeter");
-    com_col=dmColumnCreate( outBlock, "COMPACTNESS", dmDOUBLE, 0, NULL,
-			    "perimeter**2/area" );
-
-    q25_col=dmColumnCreate( outBlock, "QUANT_25", dmDOUBLE, 0, NULL, "25%");
-    q33_col=dmColumnCreate( outBlock, "QUANT_33", dmDOUBLE, 0, NULL, "33%");
-    q67_col=dmColumnCreate( outBlock, "QUANT_67", dmDOUBLE, 0, NULL, "67%");
-    q75_col=dmColumnCreate( outBlock, "QUANT_75", dmDOUBLE, 0, NULL, "75%");
-
-
-    avg_col=dmColumnCreateVector( outBlock, "AVERAGE", dmDOUBLE, 0, NULL, 
-				  "average location", avg, 2);
-    cen_col=dmColumnCreateVector( outBlock, "CENTROID", dmDOUBLE, 0, NULL, 
-				  "centroid location", cen, 2);
-
-    
-
-    hdr = getHdr( inBlock, hdrDM_FILE );
-    putHdr( outBlock, hdrDM_FILE, hdr, BASIC_STS, "dmmaskstat");
-
-    put_param_hist_info( outBlock, "dmmaskstat", NULL, 0 );
-
-    for (ii=min_mask; ii<=max_mask;ii++) {
-      double dvals[2];
-
-      dmSetScalar_l(mask_col, stats[ii-min_mask].mask_vals);
-      dmSetScalar_d( min_col,stats[ii-min_mask].min);
-      dmSetScalar_d( max_col,stats[ii-min_mask].max);
-      dmSetScalar_d( mean_col,stats[ii-min_mask].mean);
-      dmSetScalar_d( median_col,stats[ii-min_mask].median);
-      dmSetScalar_d( mode_col,stats[ii-min_mask].mode);
-      dmSetScalar_d( sig_col,stats[ii-min_mask].sigma);
-      dmSetScalar_d( sum_col,stats[ii-min_mask].sum);
-      dmSetScalar_d( count_col,stats[ii-min_mask].count);
-      dmSetScalar_d( range_col,stats[ii-min_mask].range);
-      dmSetScalar_d( q25_col,stats[ii-min_mask].q25);
-      dmSetScalar_d( q33_col,stats[ii-min_mask].q33);
-      dmSetScalar_d( q67_col, stats[ii-min_mask].q67);
-      dmSetScalar_d( q75_col, stats[ii-min_mask].q75);
-      dmSetScalar_l( per_col, stats[ii-min_mask].perimeter);
-      dmSetScalar_d( com_col, stats[ii-min_mask].compact);
-
-
-      dvals[0] = stats[ii-min_mask].xavg+1;
-      dvals[1] = stats[ii-min_mask].yavg+1;
-      if ( xdesc ) {
-	double loc[2];
-	if (ydesc) {  /* If no y desc, then xDesc has 2 components */
-	  dmCoordCalc_d( xdesc, dvals, loc );
-	  dmCoordCalc_d( ydesc, dvals+1, loc+1 );
-	} else {
-	  dmCoordCalc_d( xdesc, dvals, loc );
-	}
-	dvals[0] =loc[0];
-	dvals[1] = loc[1];
-      }
-      dmSetVector_d( avg_col, dvals, 2 );
-
-      dvals[0] = stats[ii-min_mask].xcen+1;
-      dvals[1] = stats[ii-min_mask].ycen+1;
-      if ( xdesc ) {
-	double loc[2];
-	if (ydesc) {  /* If no y desc, then xDesc has 2 components */
-	  dmCoordCalc_d( xdesc, dvals, loc );
-	  dmCoordCalc_d( ydesc, dvals+1, loc+1 );
-	} else {
-	  dmCoordCalc_d( xdesc, dvals, loc );
-	}
-	dvals[0] =loc[0];
-	dvals[1] = loc[1];
-      }
-      dmSetVector_d( cen_col, dvals, 2 );
-
-
-      /*
-	dmSetScalar_d( foo_col, stats[ii-min_mask].xcen);
-	dmSetScalar_d( foo_col, stats[ii-min_mask].ycen);
-	dmSetScalar_d( foo_col, stats[ii-min_mask].xavg);
-	dmSetScalar_d( foo_col, stats[ii-min_mask].yavg);
-      */
-
-      dmTablePutRow( outBlock, NULL);
+    Image *image;
+    if (NULL == (image = load_infile(pars->infile))) {
+        return(-1);
     }
-    
-    dmTableClose(outBlock );
 
-  }
-  dmImageClose( inBlock );
-  return(0);
+    Image *mask;
+    if (NULL == (mask = load_infile(pars->maskfile))) {
+        return(-1);
+    }
 
+    if ( ( dmFLOAT == mask->dt) || ( dmDOUBLE==mask->dt)) {
+        err_msg("ERROR: Mask file must be integer data type\n");
+        return(-1);
+    }
+
+    if ( (mask->lAxes[0]!=image->lAxes[0]) || (mask->lAxes[1]!=image->lAxes[1])) {
+        err_msg("ERROR: infile and maskfile do not have same image dimensions\n");
+        return(-1);
+    }
+  
+    StatsBuffer *sbuff;
+    if ( NULL == (sbuff = get_mask_range( mask ) )) {
+        return(-1);
+    }
+
+    MaskStats *mask_stats;
+    if ( NULL == (mask_stats = loop_over_masks(image, mask, sbuff))) {
+        return(-1);
+    }
+
+    if ( 0 != write_output(pars->outfile, mask_stats, image)) {
+        return(-1);
+    }
+
+    return(0);
 
 }
