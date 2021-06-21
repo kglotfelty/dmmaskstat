@@ -154,7 +154,6 @@ Image* load_infile(char *infile)
  */
 int convert_coords( Image *image, double x_in, double y_in, double *x_out, double *y_out)
 {
-    // Convert from 0-based array index to physical coords
     if (image->xdesc == NULL) {
         *x_out = x_in;
         *y_out = y_in;
@@ -164,6 +163,7 @@ int convert_coords( Image *image, double x_in, double y_in, double *x_out, doubl
     double logical[2];
     double physical[2];
 
+    // Convert from 0-based array index to physical coords
     logical[0] = x_in + 1;
     logical[1] = y_in + 1;
     dmCoordCalc_d(image->xdesc, logical, physical);
