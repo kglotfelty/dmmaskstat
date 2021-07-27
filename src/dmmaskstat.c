@@ -30,17 +30,6 @@
 #include <dmfilters.h>
 #include <dmimgio.h>
 
-/* Hold info for an input image */
-typedef struct {
-    void *data;        // pixel values
-    dmDataType dt;     // pixel datatype
-    long *lAxes;       // axis lenghts
-    short *mask;        // mask of valid pixels
-    dmDescriptor *xdesc;  // X (or sky) coordinate descriptor
-    dmDescriptor *ydesc;  // Y coordinate descriptor
-    dmBlock *block; // The block image came from
-} Image;
-
 
 /* Input parameters */
 typedef struct {
@@ -88,7 +77,6 @@ typedef struct {
 // ------------------------
 // Function prototypes
 
-Image* load_infile(char *infile);
 int dmmaskstat();
 int convert_coords( Image *image, double x_in, double y_in, double *x_out, double *y_out);
 Parameters *get_parameters();
@@ -110,43 +98,6 @@ int write_output(char *outfile, MaskStats *mask_stats, Image *image);
 
 // ----------------------
 // Functions
-
-/*
- *  Load images using dmimgio routines
- */
-Image* load_infile(char *infile)
-{
-    // Load image
-
-    Image *image;
-    if (NULL == (image = calloc(1,sizeof(Image)))) {
-        err_msg("ERROR: Cannot allocate memory for image\n");
-        return(NULL);
-    }
-
-    if (NULL == (image->block = dmImageOpen(infile))) {
-        err_msg("ERROR: Cannot load infile '%s'\n",infile);
-        return(NULL);
-    }
-
-    // dmimgio
-    regRegion *dss = NULL;
-    long null_value;
-    short has_null;
-    image->dt = get_image_data(image->block, &(image->data),
-                    &(image->lAxes), &dss, &null_value, &has_null);
-    get_image_wcs(image->block, &(image->xdesc), &(image->ydesc));
-    image->mask = get_image_mask(image->block, image->data,
-                    image->dt, image->lAxes, dss, null_value,
-                    has_null, image->xdesc, image->ydesc);
-
-    if (dss != NULL){
-        regFree(dss);
-        dss=NULL;
-    }
-
-    return(image);
-}
 
 
 /*
@@ -231,8 +182,7 @@ StatsBuffer *get_mask_range(Image *mask)
     for(yy=mask->lAxes[1];yy--;) {
         for (xx=mask->lAxes[0];xx--; ) {
             double  mval;
-            mval = get_image_value(mask->data, mask->dt, xx, yy,
-                                   mask->lAxes, mask->mask);
+            mval = get_image_value(mask, xx, yy);
             if ( ds_dNAN(mval) ) continue;
 
             sbuff->min_mask = MIN( sbuff->min_mask, mval );
@@ -330,8 +280,7 @@ Stats *get_mask_stats(Image *image, Image *mask, StatsBuffer *sbuff, long mask_i
 
       for (xx=image->lAxes[0];xx--; ) {
         double  mval;
-        mval = get_image_value(mask->data, mask->dt, xx, yy,
-                                   mask->lAxes, mask->mask);
+        mval = get_image_value(mask, xx, yy);
 
         if ((mval != mask_id) && (last_mval == mask_id)) retvals->perimeter++;
         if ((mval == mask_id) && (last_mval != mask_id)) retvals->perimeter++;        
@@ -351,8 +300,7 @@ Stats *get_mask_stats(Image *image, Image *mask, StatsBuffer *sbuff, long mask_i
         retvals->ymax = MAX(yy,retvals->ymax);
 
         double val;
-        val = get_image_value( image->data, image->dt, xx, yy,
-                               image->lAxes, image->mask);
+        val = get_image_value( image, xx, yy);
         if ( ds_dNAN(val) ) {
             continue;
         }
@@ -390,8 +338,7 @@ Stats *get_mask_stats(Image *image, Image *mask, StatsBuffer *sbuff, long mask_i
 
         double mval;
 
-        mval = get_image_value(mask->data, mask->dt, xx, yy,
-                                   mask->lAxes, mask->mask);
+        mval = get_image_value(mask, xx, yy);
 
         if ((mval != mask_id) && (last_mval == mask_id)) retvals->perimeter++;
         if ((mval == mask_id) && (last_mval != mask_id)) retvals->perimeter++;        
@@ -573,12 +520,12 @@ int dmmaskstat()
     }
 
     Image *image;
-    if (NULL == (image = load_infile(pars->infile))) {
+    if (NULL == (image = load_image(pars->infile))) {
         return(-1);
     }
 
     Image *mask;
-    if (NULL == (mask = load_infile(pars->maskfile))) {
+    if (NULL == (mask = load_image(pars->maskfile))) {
         return(-1);
     }
 
