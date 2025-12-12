@@ -1,4 +1,4 @@
-AC_INIT([dmmaskstat], [4.16.0], [glotfeltyk@si.edu])
+AC_INIT([dmmaskstat], [4.18.0], [glotfeltyk@si.edu])
 AM_INIT_AUTOMAKE([foreign -Wall])
 AM_MAINTAINER_MODE([disable])
 AC_PROG_CC
@@ -50,7 +50,7 @@ PKG_CHECK_MODULES( [CIAO], [
 # -------- dmimgio.h ------------
 foo=$CPPFLAGS
 CPPFLAGS=$CIAO_CFLAGS
-AC_CHECK_HEADER( dmimgio.h, [], 
+AC_CHECK_HEADER( dmimgio.h, [],
   AC_MSG_ERROR([Cannot locate dmimgio.h header file], [1])
 )
 CPPFLAGS=$foo
@@ -59,7 +59,7 @@ CPPFLAGS=$foo
 # -------- filters ------------
 foo=$CPPFLAGS
 CPPFLAGS=$CIAO_CFLAGS
-AC_CHECK_HEADER( dmfilters.h, [], 
+AC_CHECK_HEADER( dmfilters.h, [],
   AC_MSG_ERROR([Cannot locate dmfilters.h header file], [1])
 )
 CPPFLAGS=$foo
@@ -85,4 +85,4 @@ AC_CONFIG_FILES([wrapper/dmmaskstat:wrapper/wrapper.sh],[chmod +x wrapper/dmmask
 # -- Go! -----------
 
 AC_OUTPUT
-  
+
