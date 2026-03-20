@@ -88,9 +88,6 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 binexe_PROGRAMS = $(am__EXEEXT_1)
-
-# problems with libstdc++ and cxcparam on Linux :(
-@LINUX_TRUE@am__append_1 = -L$(prefix)/ots/lib -lstdc++
 subdir = src
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
@@ -109,7 +106,7 @@ am_dmmaskstat_OBJECTS = dmmaskstat-dmmaskstat.$(OBJEXT) \
 	dmmaskstat-t_dmmaskstat.$(OBJEXT)
 dmmaskstat_OBJECTS = $(am_dmmaskstat_OBJECTS)
 am__DEPENDENCIES_1 =
-dmmaskstat_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
+dmmaskstat_DEPENDENCIES = $(am__DEPENDENCIES_1)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -304,8 +301,8 @@ paramdir = $(prefix)/param
 ahelpdir = $(prefix)/share/doc/xml
 dmmaskstat_SOURCES = dmmaskstat.c t_dmmaskstat.c
 dmmaskstat_CPPFLAGS = $(CIAO_CFLAGS)
-dmmaskstat_LDADD = $(CIAO_LIBS) $(am__append_1)
-dmmaskstat_LINK = $(CXX) -o $@ -Wl,-rpath,$(prefix)/lib -Wl,-rpath,$(prefix)/ots/lib 
+dmmaskstat_LDADD = $(CIAO_LIBS)
+dmmaskstat_LINK = $(CXX) -o $@ -Wl,-rpath,$(prefix)/lib
 dist_param_DATA = $(tool).par
 dist_ahelp_DATA = $(tool).xml
 all: all-am
