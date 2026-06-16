@@ -37,6 +37,39 @@ lower-median</ITEM>
 edges)</ITEM>
 <ITEM>COMPACTNESS - (PERIMETER**2/AREA), a measure of how
 circle-like</ITEM>
+<ITEM>CONVEX_AREA - area enclosed by the convex hull of the mask
+outline</ITEM>
+<ITEM>CONVEX_PERIMETER - perimeter of the convex hull of the mask
+outline</ITEM>
+<ITEM>FERET_DIAMETER - maximum distance between parallel tangents to
+the mask outline</ITEM>
+<ITEM>MIN_FERET_DIAMETER - minimum distance between parallel tangents
+to the mask outline</ITEM>
+<ITEM>MAX_INSCRIBED_CIRCLE_DIAMETER - diameter of the largest circle
+centered on a mask pixel and contained in the mask</ITEM>
+<ITEM>EQ_CIRCLE_DIAMETER - diameter of a circle with the same area as
+the mask</ITEM>
+<ITEM>MBR_LONG_SIDE, MBR_SHORT_SIDE - long and short sides of the
+minimum-area bounding rectangle</ITEM>
+<ITEM>ASPECT_RATIO - MBR_LONG_SIDE/MBR_SHORT_SIDE</ITEM>
+<ITEM>AREA_PERIMETER_RATIO - AREA/PERIMETER</ITEM>
+<ITEM>CIRCULARITY - PERIMETER**2/AREA</ITEM>
+<ITEM>ELONGATION - 1 - MBR_SHORT_SIDE/MBR_LONG_SIDE</ITEM>
+<ITEM>CONVEXITY - CONVEX_PERIMETER/PERIMETER</ITEM>
+<ITEM>SOLIDITY - AREA/CONVEX_AREA</ITEM>
+<ITEM>NUM_HOLES - number of enclosed background components inside the
+mask</ITEM>
+<ITEM>THINNESS_RATIO - 4*pi*AREA/PERIMETER**2</ITEM>
+<ITEM>CONTOUR_TEMPERATURE - log2(2*PERIMETER/(PERIMETER -
+CONVEX_PERIMETER)) - 1</ITEM>
+<ITEM>ORIENTATION - major-axis orientation in degrees, measured
+counter-clockwise from the positive x axis</ITEM>
+<ITEM>MAJOR_AXIS, MINOR_AXIS - major and minor axes from second
+moments</ITEM>
+<ITEM>FRACTAL_BOX_DIMENSION - fractal dimension estimated by box
+counting with box sizes 2,3,4,6,8,12,16,32,64</ITEM>
+<ITEM>HOLES_AREA - total area of holes inside the mask</ITEM>
+<ITEM>POROSITY - HOLES_AREA/(AREA + HOLES_AREA)</ITEM>
 <ITEM>QUANT_25 - the 25% quantile value</ITEM>
 <ITEM>QUANT_33 - the 33% quantile value</ITEM>
 <ITEM>QUANT_67 - the 67% quantile value</ITEM>
